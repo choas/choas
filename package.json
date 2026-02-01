@@ -1,8 +1,11 @@
 {
   "name": "choas",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Colorful Mandelbrot ASCII art generator",
   "main": "dist/index.js",
+  "bin": {
+    "choas": "dist/index.js"
+  },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",

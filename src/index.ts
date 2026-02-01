@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // Mandelbrot ASCII Art Generator
 // Uses ANSI escape codes for colors - no external libraries needed
 
