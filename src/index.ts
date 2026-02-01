@@ -113,6 +113,9 @@ function renderMandelbrot(): void {
 
   output += RESET;
   process.stdout.write(output);
+
+  // Add choas to the output
+  console.log('\nchoas');
 }
 
 // Run the visualization
