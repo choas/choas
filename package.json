@@ -1,5 +1,5 @@
 {
-  "name": "mandelbrot-ascii",
+  "name": "choas",
   "version": "1.0.0",
   "description": "Colorful Mandelbrot ASCII art generator",
   "main": "dist/index.js",
