@@ -1,0 +1,40 @@
+[
+  {
+    "category": "setup",
+    "description": "Example: Project builds successfully",
+    "steps": [
+      "Run the build command",
+      "Verify no errors occur"
+    ],
+    "passes": true
+  },
+  {
+    "category": "feature",
+    "description": "Create a colorful mandelbrot ascii art",
+    "steps": [
+      "Run the app",
+      "Verify that a colorful mandelbrot ascii art is show",
+      "Verify that the full terminal screen is used",
+      "Verify that no extra library is installed"
+    ],
+    "passes": true
+  },
+  {
+    "category": "feature",
+    "description": "Add \"choas\" (note: this is not a typo) to the output",
+    "steps": [
+      "Run app",
+      "Verify that \"choas\" is written"
+    ],
+    "passes": true
+  },
+  {
+    "category": "bugfix",
+    "description": "Rename project to \"choas\"",
+    "steps": [
+      "Check project",
+      "Verify that project is called \"choas\" (note: this is not a typo)"
+    ],
+    "passes": true
+  }
+]

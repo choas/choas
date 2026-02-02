@@ -43,6 +43,16 @@ const RESET = '\x1b[0m';
 // ASCII characters for density visualization
 const chars = ' .:-=+*#%@';
 
+// View state
+let centerX = -0.75;
+let centerY = 0.0;
+let zoom = 1.0;
+let maxIter = 100;
+
+// Default bounds
+const DEFAULT_X_RANGE = 3.5;
+const DEFAULT_Y_RANGE = 2.0;
+
 function mandelbrot(cReal: number, cImag: number, maxIter: number): number {
   let zReal = 0;
   let zImag = 0;
@@ -79,23 +89,22 @@ function renderMandelbrot(): void {
   const width = process.stdout.columns || 80;
   const height = process.stdout.rows || 24;
 
-  // Mandelbrot set bounds (classic view)
-  const xMin = -2.5;
-  const xMax = 1.0;
-  const yMin = -1.0;
-  const yMax = 1.0;
-
-  // Adjust for aspect ratio (terminal characters are taller than wide)
-  const aspectRatio = 2.0; // Approximate character aspect ratio
-
-  const maxIter = 100;
+  // Calculate bounds based on center, zoom, and aspect ratio
+  const aspectRatio = 2.0; // Terminal character aspect ratio
+  const xRange = DEFAULT_X_RANGE / zoom;
+  const yRange = DEFAULT_Y_RANGE / zoom;
+  
+  const xMin = centerX - xRange / 2;
+  const xMax = centerX + xRange / 2;
+  const yMin = centerY - yRange / 2;
+  const yMax = centerY + yRange / 2;
 
   // Clear screen and move cursor to top-left
   process.stdout.write('\x1b[2J\x1b[H');
 
   let output = '';
 
-  for (let row = 0; row < height - 1; row++) { // Leave one row for prompt
+  for (let row = 0; row < height - 1; row++) { // Leave one row for status
     for (let col = 0; col < width; col++) {
       // Map pixel position to complex plane
       const cReal = xMin + (col / width) * (xMax - xMin);
@@ -115,9 +124,63 @@ function renderMandelbrot(): void {
   output += RESET;
   process.stdout.write(output);
 
-  // Add choas to the output
-  console.log('\nchoas');
+  // Status line
+  console.log(`\n${RESET}[Arrows: pan] [q: quit] Center: (${centerX.toFixed(4)}, ${centerY.toFixed(4)}) Zoom: ${zoom.toFixed(2)}x`);
+}
+
+function handleKeypress(key: Buffer): void {
+  const keyStr = key.toString();
+  const panAmount = 0.1 / zoom;
+
+  // Arrow keys (escape sequences)
+  if (keyStr === '\x1b[A') { // Up
+    centerY += panAmount;
+    renderMandelbrot();
+  } else if (keyStr === '\x1b[B') { // Down
+    centerY -= panAmount;
+    renderMandelbrot();
+  } else if (keyStr === '\x1b[C') { // Right
+    centerX += panAmount;
+    renderMandelbrot();
+  } else if (keyStr === '\x1b[D') { // Left
+    centerX -= panAmount;
+    renderMandelbrot();
+  } else if (keyStr === 'q' || keyStr === '\x03') { // q or Ctrl+C
+    cleanup();
+    process.exit(0);
+  }
+}
+
+function cleanup(): void {
+  process.stdin.setRawMode(false);
+  process.stdin.pause();
+  process.stdout.write(RESET + '\x1b[?25h'); // Show cursor
+}
+
+function startInteractive(): void {
+  // Enable raw mode for keyboard input
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.on('data', handleKeypress);
+    
+    // Hide cursor
+    process.stdout.write('\x1b[?25l');
+    
+    // Initial render
+    renderMandelbrot();
+    
+    // Handle process exit
+    process.on('exit', cleanup);
+    process.on('SIGINT', () => {
+      cleanup();
+      process.exit(0);
+    });
+  } else {
+    // Non-interactive mode - just render once
+    renderMandelbrot();
+  }
 }
 
 // Run the visualization
-renderMandelbrot();
+startInteractive();

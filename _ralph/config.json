@@ -1,0 +1,82 @@
+{
+  "language": "node",
+  "checkCommand": "npm run typecheck",
+  "testCommand": "npm test",
+  "imageName": "ralph-choas",
+  "cli": {
+    "command": "claude",
+    "args": [],
+    "yoloArgs": [
+      "--dangerously-skip-permissions"
+    ],
+    "promptArgs": [
+      "-p"
+    ]
+  },
+  "cliProvider": "claude",
+  "llmProviders": {},
+  "notifyCommand": "",
+  "technologies": [],
+  "javaVersion": null,
+  "docker": {
+    "ports": [],
+    "volumes": [],
+    "environment": {},
+    "git": {
+      "name": "",
+      "email": ""
+    },
+    "packages": [],
+    "buildCommands": {
+      "root": [],
+      "node": []
+    },
+    "startCommand": "",
+    "asciinema": {
+      "enabled": false,
+      "autoRecord": false,
+      "outputDir": ".recordings",
+      "streamJson": {
+        "enabled": false,
+        "saveRawJson": true
+      }
+    },
+    "firewall": {
+      "allowedDomains": []
+    },
+    "autoStart": false,
+    "restartCount": 0
+  },
+  "claude": {
+    "mcpServers": {},
+    "skills": []
+  },
+  "chat": {
+    "enabled": false,
+    "provider": "telegram",
+    "telegram": {
+      "botToken": "",
+      "allowedChatIds": []
+    },
+    "responders": {
+      "qa": {
+        "type": "llm",
+        "trigger": "@qa",
+        "provider": "anthropic",
+        "systemPrompt": "You are a knowledgeable Q&A assistant for the {{project}} project. Your role is to:\n\n1. Answer questions accurately and concisely about the codebase, its architecture, and functionality\n2. Explain how specific features, components, or modules work\n3. Help developers understand code patterns, conventions, and best practices used in the project\n4. Clarify dependencies, APIs, and integration points\n5. Provide context about why certain design decisions were made\n\nKeep responses focused and practical. If you're unsure about something, say so rather than guessing. Reference specific files, functions, or code sections when helpful.",
+        "timeout": 60000,
+        "maxLength": 2000
+      },
+      "code": {
+        "type": "claude-code",
+        "trigger": "@code",
+        "timeout": 300000,
+        "maxLength": 2000
+      }
+    }
+  },
+  "daemon": {
+    "actions": {},
+    "events": {}
+  }
+}
