@@ -48,6 +48,17 @@ let centerX = -0.75;
 let centerY = 0.0;
 let zoom = 1.0;
 let maxIter = 100;
+let animating = false;
+let animationInterval: NodeJS.Timeout | null = null;
+
+// Interesting points to auto-zoom into
+const INTERESTING_POINTS = [
+  { x: -0.7436447860, y: 0.1318252536 },  // Seahorse valley
+  { x: -0.16, y: 1.0405 },                 // Spiral
+  { x: -1.25066, y: 0.02012 },             // Mini-brot
+  { x: -0.748, y: 0.1 },                   // Another seahorse
+];
+let targetPoint = INTERESTING_POINTS[0];
 
 // Default bounds
 const DEFAULT_X_RANGE = 3.5;
@@ -125,7 +136,39 @@ function renderMandelbrot(): void {
   process.stdout.write(output);
 
   // Status line
-  console.log(`\n${RESET}[Arrows: pan] [+/-: zoom] [q: quit] Center: (${centerX.toFixed(4)}, ${centerY.toFixed(4)}) Zoom: ${zoom.toFixed(2)}x`);
+  const animStatus = animating ? ' [ANIMATING - Enter to stop]' : ' [a: animate]';
+  console.log(`\n${RESET}[Arrows: pan] [+/-: zoom] [q: quit]${animStatus} Center: (${centerX.toFixed(4)}, ${centerY.toFixed(4)}) Zoom: ${zoom.toFixed(2)}x`);
+}
+
+function startAnimation(): void {
+  if (animating) return;
+  animating = true;
+  
+  // Pick a random interesting point
+  targetPoint = INTERESTING_POINTS[Math.floor(Math.random() * INTERESTING_POINTS.length)];
+  
+  animationInterval = setInterval(() => {
+    // Smoothly move toward target
+    centerX += (targetPoint.x - centerX) * 0.05;
+    centerY += (targetPoint.y - centerY) * 0.05;
+    
+    // Zoom in
+    zoom *= 1.02;
+    
+    // Increase iterations as we zoom
+    maxIter = Math.min(1000, 100 + Math.floor(zoom * 10));
+    
+    renderMandelbrot();
+  }, 100);
+}
+
+function stopAnimation(): void {
+  if (!animating) return;
+  animating = false;
+  if (animationInterval) {
+    clearInterval(animationInterval);
+    animationInterval = null;
+  }
 }
 
 function handleKeypress(key: Buffer): void {
@@ -151,7 +194,13 @@ function handleKeypress(key: Buffer): void {
   } else if (keyStr === '-' || keyStr === '_') { // Zoom out
     zoom = Math.max(0.1, zoom / 1.5);
     renderMandelbrot();
+  } else if (keyStr === 'a') { // Start animation
+    startAnimation();
+  } else if (keyStr === '\r' || keyStr === '\n') { // Enter - stop animation
+    stopAnimation();
+    renderMandelbrot();
   } else if (keyStr === 'q' || keyStr === '\x03') { // q or Ctrl+C
+    stopAnimation();
     cleanup();
     process.exit(0);
   }
