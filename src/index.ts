@@ -566,7 +566,13 @@ function handleKeypress(key: Buffer): void {
     showHelp = true;
     renderMandelbrot();
   } else if (keyStr === 's') { // Save screenshot
+    // Temporarily disable crosshair for clean screenshot
+    const hadCrosshair = showCrosshair;
+    showCrosshair = false;
+    renderMandelbrot(); // Re-render without crosshair to update lastRenderedOutput
     const savedPath = saveScreenshot();
+    showCrosshair = hadCrosshair; // Restore crosshair state
+    renderMandelbrot(); // Re-render with original state
     // Briefly show save confirmation in status area
     process.stdout.write(`\x1b[${process.stdout.rows || 24};1H\x1b[K\x1b[32mSaved: ${savedPath}${RESET}`);
   } else if (keyStr >= '1' && keyStr <= '9') { // Recall bookmark
