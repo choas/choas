@@ -59,8 +59,8 @@ let juliaMode = false;
 let juliaC = { real: -0.7, imag: 0.27015 }; // Classic Julia set parameter
 
 // Color schemes
-type ColorScheme = 'rainbow' | 'fire' | 'ice' | 'grayscale';
-const COLOR_SCHEMES: ColorScheme[] = ['rainbow', 'fire', 'ice', 'grayscale'];
+type ColorScheme = 'rainbow' | 'fire' | 'ice' | 'grayscale' | 'green';
+const COLOR_SCHEMES: ColorScheme[] = ['rainbow', 'fire', 'ice', 'grayscale', 'green'];
 let colorSchemeIndex = 0;
 
 // Bookmarks
@@ -192,6 +192,11 @@ function getColor(iter: number, maxIter: number): string {
     case 'grayscale':
       const gray = Math.floor(40 + (iter / maxIter) * 200);
       return `\x1b[38;2;${gray};${gray};${gray}m`;
+    case 'green':
+      hue = 90 + (iter * 2) % 60; // Green range (90-150)
+      saturation = 0.9;
+      lightness = 0.3 + 0.3 * Math.sin(iter * 0.1);
+      break;
     case 'rainbow':
     default:
       hue = (iter * 7) % 360;
@@ -328,16 +333,31 @@ function saveScreenshot(): string {
   const screenshotsDir = path.join(process.cwd(), 'screenshots');
   
   // Create screenshots directory if it doesn't exist
-  if (!fs.existsSync(screenshotsDir)) {
-    fs.mkdirSync(screenshotsDir, { recursive: true });
+  try {
+    if (!fs.existsSync(screenshotsDir)) {
+      fs.mkdirSync(screenshotsDir, { recursive: true });
+    }
+  } catch {
+    // If we can't create in cwd, try home directory
+    const homeScreenshots = path.join(process.env.HOME || '/tmp', 'choas-screenshots');
+    if (!fs.existsSync(homeScreenshots)) {
+      fs.mkdirSync(homeScreenshots, { recursive: true });
+    }
+    return saveToPath(homeScreenshots, filename);
   }
   
-  const filepath = path.join(screenshotsDir, filename);
+  return saveToPath(screenshotsDir, filename);
+}
+
+function saveToPath(dir: string, filename: string): string {
+  const filepath = path.join(dir, filename);
   
-  // Escape single quotes and backslashes for bash
+  // Use $'...' syntax for proper ANSI escape handling in bash
+  // Escape backslashes and single quotes
   const escapedOutput = lastRenderedOutput
     .replace(/\\/g, '\\\\')
-    .replace(/'/g, "'\\''");
+    .replace(/'/g, "\\'")
+    .replace(/\x1b/g, '\\x1b');
   
   const script = `#!/bin/bash
 # Mandelbrot/Julia Screenshot
@@ -347,7 +367,7 @@ function saveScreenshot(): string {
 # Zoom: ${zoom.toFixed(2)}x
 
 clear
-echo -e '${escapedOutput}'
+echo -e $'${escapedOutput}'
 echo ""
 echo "Screenshot from choas fractal explorer"
 `;
@@ -355,7 +375,7 @@ echo "Screenshot from choas fractal explorer"
   fs.writeFileSync(filepath, script);
   fs.chmodSync(filepath, '755');
   
-  return filename;
+  return `${path.basename(dir)}/${filename}`;
 }
 
 function findBoundaryPoint(): { x: number, y: number } {
@@ -546,9 +566,9 @@ function handleKeypress(key: Buffer): void {
     showHelp = true;
     renderMandelbrot();
   } else if (keyStr === 's') { // Save screenshot
-    const filename = saveScreenshot();
+    const savedPath = saveScreenshot();
     // Briefly show save confirmation in status area
-    process.stdout.write(`\x1b[${process.stdout.rows || 24};1H\x1b[K\x1b[32mSaved: screenshots/${filename}${RESET}`);
+    process.stdout.write(`\x1b[${process.stdout.rows || 24};1H\x1b[K\x1b[32mSaved: ${savedPath}${RESET}`);
   } else if (keyStr >= '1' && keyStr <= '9') { // Recall bookmark
     const bookmark = bookmarks.get(keyStr);
     if (bookmark) {
@@ -593,6 +613,11 @@ function startInteractive(): void {
     // Initial render
     renderMandelbrot();
     
+    // Start animation if --animation or -a flag was passed
+    if (process.argv.includes('--animation') || process.argv.includes('-a')) {
+      startAnimation();
+    }
+    
     // Handle process exit
     process.on('exit', cleanup);
     process.on('SIGINT', () => {
@@ -613,7 +638,8 @@ USAGE:
   npx choas [options]
 
 OPTIONS:
-  --help, -h    Show this help message
+  --help, -h        Show this help message
+  --animation, -a   Start with animation running
 
 KEYBOARD CONTROLS:
   Navigation:
