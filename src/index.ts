@@ -51,6 +51,26 @@ let maxIter = 100;
 let animating = false;
 let animationInterval: NodeJS.Timeout | null = null;
 
+// Julia set mode
+let juliaMode = false;
+let juliaC = { real: -0.7, imag: 0.27015 }; // Classic Julia set parameter
+
+// Color schemes
+type ColorScheme = 'rainbow' | 'fire' | 'ice' | 'grayscale';
+const COLOR_SCHEMES: ColorScheme[] = ['rainbow', 'fire', 'ice', 'grayscale'];
+let colorSchemeIndex = 0;
+
+// Bookmarks
+interface Bookmark {
+  x: number;
+  y: number;
+  zoom: number;
+}
+const bookmarks: Map<string, Bookmark> = new Map();
+
+// Crosshair
+let showCrosshair = false;
+
 // Interesting points to auto-zoom into
 const INTERESTING_POINTS = [
   { x: -0.7436447860, y: 0.1318252536 },  // Seahorse valley
@@ -76,7 +96,30 @@ function mandelbrot(cReal: number, cImag: number, maxIter: number): number {
     iter++;
   }
 
-  return iter;
+  if (iter === maxIter) return iter;
+  
+  // Smooth coloring using logarithmic escape
+  const log_zn = Math.log(zReal * zReal + zImag * zImag) / 2;
+  const nu = Math.log(log_zn / Math.log(2)) / Math.log(2);
+  return iter + 1 - nu;
+}
+
+function julia(zReal: number, zImag: number, cReal: number, cImag: number, maxIter: number): number {
+  let iter = 0;
+
+  while (iter < maxIter && zReal * zReal + zImag * zImag < 4) {
+    const tempReal = zReal * zReal - zImag * zImag + cReal;
+    zImag = 2 * zReal * zImag + cImag;
+    zReal = tempReal;
+    iter++;
+  }
+
+  if (iter === maxIter) return iter;
+  
+  // Smooth coloring using logarithmic escape
+  const log_zn = Math.log(zReal * zReal + zImag * zImag) / 2;
+  const nu = Math.log(log_zn / Math.log(2)) / Math.log(2);
+  return iter + 1 - nu;
 }
 
 function hslToAnsi256(h: number, s: number, l: number): string {
@@ -107,11 +150,30 @@ function getColor(iter: number, maxIter: number): string {
     return '\x1b[38;5;16m'; // Inside the set - black
   }
   
-  // Smooth coloring using HSL color wheel
-  // Hue cycles through the spectrum based on iteration count
-  const hue = (iter * 7) % 360;  // Cycle through colors
-  const saturation = 0.8;
-  const lightness = 0.4 + 0.2 * Math.sin(iter * 0.1); // Vary lightness slightly
+  const scheme = COLOR_SCHEMES[colorSchemeIndex];
+  let hue: number, saturation: number, lightness: number;
+  
+  switch (scheme) {
+    case 'fire':
+      hue = 60 - (iter * 2) % 60; // Yellow to red
+      saturation = 1.0;
+      lightness = 0.3 + 0.3 * Math.sin(iter * 0.1);
+      break;
+    case 'ice':
+      hue = 180 + (iter * 3) % 60; // Cyan to blue
+      saturation = 0.9;
+      lightness = 0.4 + 0.2 * Math.sin(iter * 0.1);
+      break;
+    case 'grayscale':
+      const gray = Math.floor(40 + (iter / maxIter) * 200);
+      return `\x1b[38;2;${gray};${gray};${gray}m`;
+    case 'rainbow':
+    default:
+      hue = (iter * 7) % 360;
+      saturation = 0.8;
+      lightness = 0.4 + 0.2 * Math.sin(iter * 0.1);
+      break;
+  }
   
   return hslToAnsi256(hue, saturation, lightness);
 }
@@ -144,17 +206,30 @@ function renderMandelbrot(): void {
 
   let output = '';
 
+  const centerCol = Math.floor(width / 2);
+  const centerRow = Math.floor((height - 1) / 2);
+
   for (let row = 0; row < height - 1; row++) { // Leave one row for status
     for (let col = 0; col < width; col++) {
       // Map pixel position to complex plane
       const cReal = xMin + (col / width) * (xMax - xMin);
       const cImag = yMax - (row / (height - 1)) * (yMax - yMin) * aspectRatio + (yMax - yMin) * (aspectRatio - 1) / 2;
 
-      const iter = mandelbrot(cReal, cImag, maxIter);
+      const iter = juliaMode 
+        ? julia(cReal, cImag, juliaC.real, juliaC.imag, maxIter)
+        : mandelbrot(cReal, cImag, maxIter);
       const color = getColor(iter, maxIter);
-      const char = getChar(iter, maxIter);
+      let char = getChar(iter, maxIter);
 
-      output += color + char;
+      // Draw crosshair at center
+      if (showCrosshair && col === centerCol && row === centerRow) {
+        output += '\x1b[38;5;15m+'; // White crosshair
+      } else if (showCrosshair && (col === centerCol || row === centerRow) && 
+                 Math.abs(col - centerCol) <= 2 && Math.abs(row - centerRow) <= 2) {
+        output += '\x1b[38;5;15m' + (col === centerCol ? '|' : '-');
+      } else {
+        output += color + char;
+      }
     }
     if (row < height - 2) {
       output += RESET + '\n';
@@ -166,15 +241,55 @@ function renderMandelbrot(): void {
 
   // Status line
   const animStatus = animating ? ' [ANIMATING - Enter to stop]' : ' [a: animate]';
-  console.log(`\n${RESET}[Arrows: pan] [+/-: zoom] [q: quit]${animStatus} Center: (${centerX.toFixed(4)}, ${centerY.toFixed(4)}) Zoom: ${zoom.toFixed(2)}x`);
+  const modeStr = juliaMode ? 'Julia' : 'Mandelbrot';
+  const scheme = COLOR_SCHEMES[colorSchemeIndex];
+  const bookmarkStr = bookmarks.size > 0 ? ` [Bookmarks: ${Array.from(bookmarks.keys()).join('')}]` : '';
+  console.log(`\n${RESET}[Arrows] [+/-] [j] [c] [[] []] [r] [Shift+1-9: save] [1-9: load] [q]${animStatus} ${modeStr} (${centerX.toFixed(4)}, ${centerY.toFixed(4)}) Zoom: ${zoom.toFixed(2)}x${bookmarkStr}`);
+}
+
+function findBoundaryPoint(): { x: number, y: number } {
+  // Sample the current view to find high-iteration boundary regions
+  const samples = 20;
+  const xRange = DEFAULT_X_RANGE / zoom;
+  const yRange = DEFAULT_Y_RANGE / zoom;
+  const xMin = centerX - xRange / 2;
+  const yMin = centerY - yRange / 2;
+  
+  let bestX = centerX, bestY = centerY;
+  let bestScore = 0;
+  
+  for (let i = 0; i < samples; i++) {
+    for (let j = 0; j < samples; j++) {
+      const x = xMin + (i / samples) * xRange;
+      const y = yMin + (j / samples) * yRange;
+      const iter = mandelbrot(x, y, 200);
+      
+      // High iteration but not inside set = interesting boundary
+      if (iter > 50 && iter < 200) {
+        const score = iter + Math.random() * 10; // Add randomness for variety
+        if (score > bestScore) {
+          bestScore = score;
+          bestX = x;
+          bestY = y;
+        }
+      }
+    }
+  }
+  
+  return { x: bestX, y: bestY };
 }
 
 function startAnimation(): void {
   if (animating) return;
   animating = true;
   
-  // Pick a random interesting point
-  targetPoint = INTERESTING_POINTS[Math.floor(Math.random() * INTERESTING_POINTS.length)];
+  // Either use predefined points or find boundary regions dynamically
+  if (zoom < 5) {
+    targetPoint = INTERESTING_POINTS[Math.floor(Math.random() * INTERESTING_POINTS.length)];
+  } else {
+    const boundary = findBoundaryPoint();
+    targetPoint = { x: boundary.x, y: boundary.y };
+  }
   
   animationInterval = setInterval(() => {
     // Smoothly move toward target
@@ -186,6 +301,12 @@ function startAnimation(): void {
     
     // Increase iterations as we zoom
     maxIter = Math.min(1000, 100 + Math.floor(zoom * 10));
+    
+    // Find new boundary target when getting close
+    if (zoom > 10 && Math.random() < 0.02) {
+      const boundary = findBoundaryPoint();
+      targetPoint = { x: boundary.x, y: boundary.y };
+    }
     
     renderMandelbrot();
   }, 100);
@@ -203,6 +324,29 @@ function stopAnimation(): void {
 function handleKeypress(key: Buffer): void {
   const keyStr = key.toString();
   const panAmount = 0.1 / zoom;
+
+  // Mouse click handling (SGR format: \x1b[<button;x;yM or m)
+  const mouseMatch = keyStr.match(/\x1b\[<(\d+);(\d+);(\d+)([Mm])/);
+  if (mouseMatch) {
+    const button = parseInt(mouseMatch[1]);
+    const mouseX = parseInt(mouseMatch[2]);
+    const mouseY = parseInt(mouseMatch[3]);
+    const isPress = mouseMatch[4] === 'M';
+    
+    if (button === 0 && isPress) { // Left click
+      const width = process.stdout.columns || 80;
+      const height = process.stdout.rows || 24;
+      const xRange = DEFAULT_X_RANGE / zoom;
+      const yRange = DEFAULT_Y_RANGE / zoom;
+      const xMin = centerX - xRange / 2;
+      const yMax = centerY + yRange / 2;
+      
+      centerX = xMin + (mouseX / width) * xRange;
+      centerY = yMax - (mouseY / (height - 1)) * yRange;
+      renderMandelbrot();
+    }
+    return;
+  }
 
   // Arrow keys (escape sequences)
   if (keyStr === '\x1b[A') { // Up
@@ -225,6 +369,50 @@ function handleKeypress(key: Buffer): void {
     renderMandelbrot();
   } else if (keyStr === 'a') { // Start animation
     startAnimation();
+  } else if (keyStr === 'j') { // Toggle Julia/Mandelbrot mode
+    juliaMode = !juliaMode;
+    if (juliaMode) {
+      centerX = 0;
+      centerY = 0;
+    } else {
+      centerX = -0.75;
+      centerY = 0;
+    }
+    zoom = 1.0;
+    renderMandelbrot();
+  } else if (keyStr === 'c') { // Cycle color scheme
+    colorSchemeIndex = (colorSchemeIndex + 1) % COLOR_SCHEMES.length;
+    renderMandelbrot();
+  } else if (keyStr === '[') { // Decrease iteration depth
+    maxIter = Math.max(50, maxIter - 50);
+    renderMandelbrot();
+  } else if (keyStr === ']') { // Increase iteration depth
+    maxIter = Math.min(1000, maxIter + 50);
+    renderMandelbrot();
+  } else if (keyStr === 'r') { // Reset view
+    centerX = juliaMode ? 0 : -0.75;
+    centerY = 0;
+    zoom = 1.0;
+    maxIter = 100;
+    renderMandelbrot();
+  } else if (keyStr === 'x') { // Toggle crosshair
+    showCrosshair = !showCrosshair;
+    renderMandelbrot();
+  } else if (keyStr >= '1' && keyStr <= '9') { // Recall bookmark
+    const bookmark = bookmarks.get(keyStr);
+    if (bookmark) {
+      centerX = bookmark.x;
+      centerY = bookmark.y;
+      zoom = bookmark.zoom;
+      renderMandelbrot();
+    }
+  } else if (keyStr === '!' || keyStr === '@' || keyStr === '#' || keyStr === '$' || 
+             keyStr === '%' || keyStr === '^' || keyStr === '&' || keyStr === '*' || keyStr === '(') {
+    // Shift+1-9 to save bookmark
+    const numMap: Record<string, string> = { '!': '1', '@': '2', '#': '3', '$': '4', '%': '5', '^': '6', '&': '7', '*': '8', '(': '9' };
+    const num = numMap[keyStr];
+    bookmarks.set(num, { x: centerX, y: centerY, zoom: zoom });
+    renderMandelbrot();
   } else if (keyStr === '\r' || keyStr === '\n') { // Enter - stop animation
     stopAnimation();
     renderMandelbrot();
@@ -238,7 +426,7 @@ function handleKeypress(key: Buffer): void {
 function cleanup(): void {
   process.stdin.setRawMode(false);
   process.stdin.pause();
-  process.stdout.write(RESET + '\x1b[?25h'); // Show cursor
+  process.stdout.write(RESET + '\x1b[?25h\x1b[?1000l\x1b[?1006l'); // Show cursor and disable mouse
 }
 
 function startInteractive(): void {
@@ -248,8 +436,8 @@ function startInteractive(): void {
     process.stdin.resume();
     process.stdin.on('data', handleKeypress);
     
-    // Hide cursor
-    process.stdout.write('\x1b[?25l');
+    // Hide cursor and enable mouse tracking
+    process.stdout.write('\x1b[?25l\x1b[?1000h\x1b[?1006h');
     
     // Initial render
     renderMandelbrot();
