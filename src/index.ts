@@ -2,6 +2,9 @@
 // Mandelbrot ASCII Art Generator
 // Uses ANSI escape codes for colors - no external libraries needed
 
+import * as fs from 'fs';
+import * as path from 'path';
+
 // ANSI color codes for a gradient palette
 const colors = [
   '\x1b[38;5;16m',   // Black (inside the set)
@@ -70,6 +73,28 @@ const bookmarks: Map<string, Bookmark> = new Map();
 
 // Crosshair
 let showCrosshair = false;
+
+// Help overlay
+let showHelp = false;
+
+// Last rendered output for screenshots
+let lastRenderedOutput = '';
+
+// Animation speed presets
+interface SpeedPreset {
+  name: string;
+  delay: number;
+}
+const SPEED_PRESETS: SpeedPreset[] = [
+  { name: 'very slow', delay: 400 },
+  { name: 'slower', delay: 300 },
+  { name: 'slow', delay: 200 },
+  { name: 'normal', delay: 150 },
+  { name: 'fast', delay: 100 },
+  { name: 'faster', delay: 50 },
+  { name: 'very fast', delay: 25 },
+];
+let speedIndex = 3; // Start at 'normal'
 
 // Interesting points to auto-zoom into
 const INTERESTING_POINTS = [
@@ -186,7 +211,55 @@ function getChar(iter: number, maxIter: number): string {
   return chars[Math.min(charIndex, chars.length - 1)];
 }
 
+function renderHelpOverlay(): void {
+  const width = process.stdout.columns || 80;
+  const height = process.stdout.rows || 24;
+  
+  process.stdout.write('\x1b[2J\x1b[H');
+  
+  const helpText = `
+  ╔══════════════════════════════════════════════════════════════╗
+  ║           MANDELBROT / JULIA SET EXPLORER                    ║
+  ╠══════════════════════════════════════════════════════════════╣
+  ║  NAVIGATION                                                  ║
+  ║    Arrow keys     Pan the view                               ║
+  ║    +, =           Zoom in (1.5x)                             ║
+  ║    -, _           Zoom out (1.5x)                            ║
+  ║    Mouse click    Center on clicked location                 ║
+  ║                                                              ║
+  ║  MODES & DISPLAY                                             ║
+  ║    j              Toggle Mandelbrot / Julia set              ║
+  ║    c              Cycle color schemes                        ║
+  ║    x              Toggle crosshair                           ║
+  ║    [, ]           Adjust iteration depth (50-1000)           ║
+  ║    r              Reset to default view                      ║
+  ║                                                              ║
+  ║  ANIMATION                                                   ║
+  ║    a              Start animation / cycle speed              ║
+  ║    Enter          Stop animation                             ║
+  ║                                                              ║
+  ║  BOOKMARKS                                                   ║
+  ║    Shift+1-9      Save current view                          ║
+  ║    1-9            Load saved bookmark                        ║
+  ║                                                              ║
+  ║  OTHER                                                       ║
+  ║    s              Save screenshot as bash script             ║
+  ║    h              Toggle this help                           ║
+  ║    q, Ctrl+C      Quit                                       ║
+  ╚══════════════════════════════════════════════════════════════╝
+
+                    Press any key to continue...
+`;
+  
+  console.log('\x1b[36m' + helpText + RESET);
+}
+
 function renderMandelbrot(): void {
+  if (showHelp) {
+    renderHelpOverlay();
+    return;
+  }
+  
   // Get terminal size, with fallbacks
   const width = process.stdout.columns || 80;
   const height = process.stdout.rows || 24;
@@ -237,14 +310,52 @@ function renderMandelbrot(): void {
   }
 
   output += RESET;
+  lastRenderedOutput = output; // Store for screenshots
   process.stdout.write(output);
 
   // Status line
-  const animStatus = animating ? ' [ANIMATING - Enter to stop]' : ' [a: animate]';
+  const speedName = SPEED_PRESETS[speedIndex].name;
+  const animStatus = animating ? ` [ANIM: ${speedName} - a: speed, Enter: stop]` : ' [a: animate]';
   const modeStr = juliaMode ? 'Julia' : 'Mandelbrot';
   const scheme = COLOR_SCHEMES[colorSchemeIndex];
   const bookmarkStr = bookmarks.size > 0 ? ` [Bookmarks: ${Array.from(bookmarks.keys()).join('')}]` : '';
-  console.log(`\n${RESET}[Arrows] [+/-] [j] [c] [[] []] [r] [Shift+1-9: save] [1-9: load] [q]${animStatus} ${modeStr} (${centerX.toFixed(4)}, ${centerY.toFixed(4)}) Zoom: ${zoom.toFixed(2)}x${bookmarkStr}`);
+  console.log(`\n${RESET}[Arrows] [+/-] [j] [c] [[] []] [r] [s] [h] [q]${animStatus} ${modeStr} (${centerX.toFixed(4)}, ${centerY.toFixed(4)}) Zoom: ${zoom.toFixed(2)}x${bookmarkStr}`);
+}
+
+function saveScreenshot(): string {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const filename = `screenshot-${timestamp}.sh`;
+  const screenshotsDir = path.join(process.cwd(), 'screenshots');
+  
+  // Create screenshots directory if it doesn't exist
+  if (!fs.existsSync(screenshotsDir)) {
+    fs.mkdirSync(screenshotsDir, { recursive: true });
+  }
+  
+  const filepath = path.join(screenshotsDir, filename);
+  
+  // Escape single quotes and backslashes for bash
+  const escapedOutput = lastRenderedOutput
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "'\\''");
+  
+  const script = `#!/bin/bash
+# Mandelbrot/Julia Screenshot
+# Generated: ${new Date().toISOString()}
+# Mode: ${juliaMode ? 'Julia' : 'Mandelbrot'}
+# Center: (${centerX.toFixed(6)}, ${centerY.toFixed(6)})
+# Zoom: ${zoom.toFixed(2)}x
+
+clear
+echo -e '${escapedOutput}'
+echo ""
+echo "Screenshot from choas fractal explorer"
+`;
+  
+  fs.writeFileSync(filepath, script);
+  fs.chmodSync(filepath, '755');
+  
+  return filename;
 }
 
 function findBoundaryPoint(): { x: number, y: number } {
@@ -280,36 +391,62 @@ function findBoundaryPoint(): { x: number, y: number } {
 }
 
 function startAnimation(): void {
-  if (animating) return;
+  // If already animating, cycle speed instead
+  if (animating) {
+    speedIndex = (speedIndex + 1) % SPEED_PRESETS.length;
+    // Restart interval with new speed
+    if (animationInterval) {
+      clearInterval(animationInterval);
+    }
+    animationInterval = setInterval(animationTick, SPEED_PRESETS[speedIndex].delay);
+    renderMandelbrot();
+    return;
+  }
+  
   animating = true;
   
   // Either use predefined points or find boundary regions dynamically
-  if (zoom < 5) {
+  if (juliaMode) {
+    // For Julia, animate around center with small movements
+    targetPoint = { x: (Math.random() - 0.5) * 0.5, y: (Math.random() - 0.5) * 0.5 };
+  } else if (zoom < 5) {
     targetPoint = INTERESTING_POINTS[Math.floor(Math.random() * INTERESTING_POINTS.length)];
   } else {
     const boundary = findBoundaryPoint();
     targetPoint = { x: boundary.x, y: boundary.y };
   }
   
-  animationInterval = setInterval(() => {
-    // Smoothly move toward target
-    centerX += (targetPoint.x - centerX) * 0.05;
-    centerY += (targetPoint.y - centerY) * 0.05;
-    
-    // Zoom in
-    zoom *= 1.02;
-    
-    // Increase iterations as we zoom
-    maxIter = Math.min(1000, 100 + Math.floor(zoom * 10));
-    
-    // Find new boundary target when getting close
-    if (zoom > 10 && Math.random() < 0.02) {
-      const boundary = findBoundaryPoint();
-      targetPoint = { x: boundary.x, y: boundary.y };
-    }
-    
-    renderMandelbrot();
-  }, 100);
+  animationInterval = setInterval(animationTick, SPEED_PRESETS[speedIndex].delay);
+}
+
+function animationTick(): void {
+  // Smoothly move toward target
+  centerX += (targetPoint.x - centerX) * 0.05;
+  centerY += (targetPoint.y - centerY) * 0.05;
+  
+  // Zoom in, but limit for Julia mode to keep set in view
+  const maxZoom = juliaMode ? 50 : 10000;
+  if (zoom < maxZoom) {
+    zoom *= 1.01;
+  }
+  
+  // Keep Julia set centered - it's symmetric around origin
+  if (juliaMode) {
+    // Constrain to reasonable bounds for Julia set visibility
+    centerX = Math.max(-2, Math.min(2, centerX));
+    centerY = Math.max(-1.5, Math.min(1.5, centerY));
+  }
+  
+  // Increase iterations as we zoom
+  maxIter = Math.min(1000, 100 + Math.floor(zoom * 10));
+  
+  // Find new boundary target when getting close (only for Mandelbrot)
+  if (!juliaMode && zoom > 10 && Math.random() < 0.02) {
+    const boundary = findBoundaryPoint();
+    targetPoint = { x: boundary.x, y: boundary.y };
+  }
+  
+  renderMandelbrot();
 }
 
 function stopAnimation(): void {
@@ -324,6 +461,13 @@ function stopAnimation(): void {
 function handleKeypress(key: Buffer): void {
   const keyStr = key.toString();
   const panAmount = 0.1 / zoom;
+
+  // If help is showing, any key dismisses it
+  if (showHelp) {
+    showHelp = false;
+    renderMandelbrot();
+    return;
+  }
 
   // Mouse click handling (SGR format: \x1b[<button;x;yM or m)
   const mouseMatch = keyStr.match(/\x1b\[<(\d+);(\d+);(\d+)([Mm])/);
@@ -398,6 +542,13 @@ function handleKeypress(key: Buffer): void {
   } else if (keyStr === 'x') { // Toggle crosshair
     showCrosshair = !showCrosshair;
     renderMandelbrot();
+  } else if (keyStr === 'h') { // Toggle help overlay
+    showHelp = true;
+    renderMandelbrot();
+  } else if (keyStr === 's') { // Save screenshot
+    const filename = saveScreenshot();
+    // Briefly show save confirmation in status area
+    process.stdout.write(`\x1b[${process.stdout.rows || 24};1H\x1b[K\x1b[32mSaved: screenshots/${filename}${RESET}`);
   } else if (keyStr >= '1' && keyStr <= '9') { // Recall bookmark
     const bookmark = bookmarks.get(keyStr);
     if (bookmark) {
@@ -452,6 +603,55 @@ function startInteractive(): void {
     // Non-interactive mode - just render once
     renderMandelbrot();
   }
+}
+
+function printHelp(): void {
+  console.log(`
+Mandelbrot/Julia Set Explorer - Interactive Terminal Fractal Viewer
+
+USAGE:
+  npx choas [options]
+
+OPTIONS:
+  --help, -h    Show this help message
+
+KEYBOARD CONTROLS:
+  Navigation:
+    Arrow keys    Pan the view (up/down/left/right)
+    +, =          Zoom in (1.5x)
+    -, _          Zoom out (1.5x)
+    Mouse click   Center view on clicked location
+
+  Modes & Display:
+    j             Toggle between Mandelbrot and Julia set
+    c             Cycle color schemes (rainbow, fire, ice, grayscale)
+    x             Toggle crosshair at center
+    [, ]          Decrease/increase iteration depth (50-1000)
+    r             Reset view to default position
+
+  Animation:
+    a             Start animation / cycle speed when running
+                  Speeds: very slow → slower → slow → normal → fast → faster → very fast
+    Enter         Stop animation
+
+  Bookmarks:
+    Shift+1-9     Save current view to bookmark slot
+    1-9           Load saved bookmark
+
+  Help & Exit:
+    h             Show help overlay
+    q, Ctrl+C     Quit
+
+EXAMPLES:
+  npx choas           Start interactive explorer
+  npx choas --help    Show this help message
+`);
+}
+
+// Check for --help flag
+if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  printHelp();
+  process.exit(0);
 }
 
 // Run the visualization
