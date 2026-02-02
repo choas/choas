@@ -79,12 +79,41 @@ function mandelbrot(cReal: number, cImag: number, maxIter: number): number {
   return iter;
 }
 
+function hslToAnsi256(h: number, s: number, l: number): string {
+  // Convert HSL to RGB
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+  
+  let r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; b = 0; }
+  else if (h < 120) { r = x; g = c; b = 0; }
+  else if (h < 180) { r = 0; g = c; b = x; }
+  else if (h < 240) { r = 0; g = x; b = c; }
+  else if (h < 300) { r = x; g = 0; b = c; }
+  else { r = c; g = 0; b = x; }
+  
+  // Convert to 0-255 range
+  const ri = Math.round((r + m) * 255);
+  const gi = Math.round((g + m) * 255);
+  const bi = Math.round((b + m) * 255);
+  
+  // Use true color ANSI escape
+  return `\x1b[38;2;${ri};${gi};${bi}m`;
+}
+
 function getColor(iter: number, maxIter: number): string {
   if (iter === maxIter) {
-    return colors[0]; // Inside the set - darkest color
+    return '\x1b[38;5;16m'; // Inside the set - black
   }
-  const colorIndex = Math.floor((iter / maxIter) * (colors.length - 1)) + 1;
-  return colors[Math.min(colorIndex, colors.length - 1)];
+  
+  // Smooth coloring using HSL color wheel
+  // Hue cycles through the spectrum based on iteration count
+  const hue = (iter * 7) % 360;  // Cycle through colors
+  const saturation = 0.8;
+  const lightness = 0.4 + 0.2 * Math.sin(iter * 0.1); // Vary lightness slightly
+  
+  return hslToAnsi256(hue, saturation, lightness);
 }
 
 function getChar(iter: number, maxIter: number): string {
