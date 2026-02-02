@@ -125,7 +125,7 @@ function renderMandelbrot(): void {
   process.stdout.write(output);
 
   // Status line
-  console.log(`\n${RESET}[Arrows: pan] [q: quit] Center: (${centerX.toFixed(4)}, ${centerY.toFixed(4)}) Zoom: ${zoom.toFixed(2)}x`);
+  console.log(`\n${RESET}[Arrows: pan] [+/-: zoom] [q: quit] Center: (${centerX.toFixed(4)}, ${centerY.toFixed(4)}) Zoom: ${zoom.toFixed(2)}x`);
 }
 
 function handleKeypress(key: Buffer): void {
@@ -144,6 +144,12 @@ function handleKeypress(key: Buffer): void {
     renderMandelbrot();
   } else if (keyStr === '\x1b[D') { // Left
     centerX -= panAmount;
+    renderMandelbrot();
+  } else if (keyStr === '+' || keyStr === '=') { // Zoom in
+    zoom *= 1.5;
+    renderMandelbrot();
+  } else if (keyStr === '-' || keyStr === '_') { // Zoom out
+    zoom = Math.max(0.1, zoom / 1.5);
     renderMandelbrot();
   } else if (keyStr === 'q' || keyStr === '\x03') { // q or Ctrl+C
     cleanup();
